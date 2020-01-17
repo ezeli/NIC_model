@@ -62,7 +62,7 @@ def train():
         rl_criterion = RewardCriterion()
         ciderd_scorer = get_ciderd_scorer(captions, decoder.sos_id, decoder.eos_id)
 
-    def forward(data, training=True):
+    def forward(data, training=True, ss_prob=0.0):
         decoder.train(training)
         loss_val = 0.0
         reward_val = 0.0
@@ -78,14 +78,12 @@ def train():
                     greedy_captions, _ = decoder(fc_feats, sample_max=1,
                                                  max_seq_len=opt.max_sql_len, mode=train_mode)
                 decoder.train()
-                import pdb
-                pdb.set_trace()
                 reward = get_self_critical_reward(sample_captions, greedy_captions, fns, captions['train'],
                                                   decoder.sos_id, decoder.eos_id, ciderd_scorer)
                 loss = rl_criterion(sample_captions, sample_logprobs, torch.from_numpy(reward).float().to(opt.device))
                 reward_val += np.mean(reward[:, 0]).item()
             else:
-                pred = decoder(fc_feats, caps_tensor, lengths)
+                pred = decoder(fc_feats, caps_tensor, lengths, ss_prob=ss_prob)
                 real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
                 loss = xe_criterion(pred, real)
 
@@ -101,19 +99,23 @@ def train():
     for epoch in range(opt.max_epochs):
         print('--------------------epoch: %d' % epoch)
         # torch.cuda.empty_cache()
-        train_loss, avg_reward = forward(train_data)
+        ss_prob = 0.0
+        if epoch > opt.scheduled_sampling_start >= 0:
+            frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
+            ss_prob = min(opt.scheduled_sampling_increase_prob * frac, opt.scheduled_sampling_max_prob)
+        train_loss, avg_reward = forward(train_data, ss_prob=ss_prob)
         with torch.no_grad():
             val_loss, _ = forward(val_data, training=False)
 
-        if previous_loss is not None and val_loss >= previous_loss:
-            lr = lr * 0.5
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
-        previous_loss = val_loss
+        if train_mode != 'rl':
+            if previous_loss is not None and val_loss >= previous_loss:
+                lr = lr * 0.5
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr
+            previous_loss = val_loss
 
         print('train_loss: %.4f, val_loss: %.4f, avg_reward: %.4f' % (train_loss, val_loss, avg_reward))
-        # if epoch in [0, 5, 10, 15, 17, 19, 20, 21, 23, 25, 27, 29] or epoch > 30:
-        if epoch in [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 15, 16, 18, 19]:
+        if epoch in [5, 10, 15, 17, 20, 23, 25, 27, 30, 33, 35, 37, 39]:
             chkpoint = {
                 'epoch': epoch,
                 'model': decoder.state_dict(),

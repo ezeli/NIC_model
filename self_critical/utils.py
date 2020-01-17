@@ -4,6 +4,9 @@ import torch.nn as nn
 import tqdm
 
 from .cider.pyciderevalcap.ciderD.ciderD import CiderD
+# from .bleu.bleu import Bleu
+#
+# Bleu_scorer = Bleu(4)
 
 
 def array_to_str(arr, sos_token, eos_token):
@@ -52,9 +55,10 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
         for cap in ground_truth[fn]:
             caps.append(array_to_str(cap, sos_token, eos_token))
         gts[fn] = caps
-
     all_result = sample_result + greedy_result
     _, scores = ciderd_scorer.compute_score(gts, all_result)
+    # _, scores = Bleu_scorer.compute_score(gts, all_result)
+    # scores = np.array(scores[3])
 
     scores = scores[:batch_size] - scores[batch_size:]
     rewards = np.repeat(scores[:, np.newaxis], sample_captions.shape[1], 1)
@@ -66,9 +70,11 @@ class RewardCriterion(nn.Module):
         super(RewardCriterion, self).__init__()
 
     def forward(self, seq, seq_logprobs, reward):
-        seq_logprobs = seq_logprobs.reshape(-1)
-        reward = reward.reshape(-1)
-        mask = (seq > 0).float().reshape(-1)
+        seq_logprobs = seq_logprobs.view(-1)
+        reward = reward.view(-1)
+        # mask = (seq > 0).float().view(-1)
+        mask = (seq > 0).float()
+        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).view(-1)
         output = - seq_logprobs * reward * mask
         output = torch.sum(output) / torch.sum(mask)
 
