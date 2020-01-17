@@ -4,9 +4,7 @@ import torch.nn as nn
 import tqdm
 
 from .cider.pyciderevalcap.ciderD.ciderD import CiderD
-# from .bleu.bleu import Bleu
-#
-# Bleu_scorer = Bleu(4)
+from .bleu.bleu import Bleu
 
 
 def array_to_str(arr, sos_token, eos_token):
@@ -42,7 +40,7 @@ def get_ciderd_scorer(split_captions, sos_token, eos_token):
     return scorer
 
 
-def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth, sos_token, eos_token, ciderd_scorer):
+def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth, sos_token, eos_token, scorer):
     batch_size = len(fns)
     assert sample_captions.size(0) == greedy_captions.size(0) == batch_size
     sample_result = []
@@ -56,9 +54,13 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
             caps.append(array_to_str(cap, sos_token, eos_token))
         gts[fn] = caps
     all_result = sample_result + greedy_result
-    _, scores = ciderd_scorer.compute_score(gts, all_result)
-    # _, scores = Bleu_scorer.compute_score(gts, all_result)
-    # scores = np.array(scores[3])
+    if isinstance(scorer, CiderD):
+        _, scores = scorer.compute_score(gts, all_result)
+    elif isinstance(scorer, Bleu):
+        _, scores = scorer.compute_score(gts, all_result)
+        scores = np.array(scores[3])
+    else:
+        raise Exception('do not support this scorer: %s' % type(scorer))
 
     scores = scores[:batch_size] - scores[batch_size:]
     rewards = np.repeat(scores[:, np.newaxis], sample_captions.shape[1], 1)
