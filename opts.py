@@ -19,7 +19,7 @@ def parse_opt():
     parser.add_argument('--scheduled_sampling_max_prob', type=float, default=0.25)
 
     parser.add_argument('--idx2word', type=str, default='./data/captions/idx2word.json')
-    parser.add_argument('--captions', type=str, default='./data/captions/captions_id.json')
+    parser.add_argument('--captions', type=str, default='./data/captions/captions.json')
     parser.add_argument('--img_feats', type=str, default='./data/features/coco_fc.h5')
     parser.add_argument('--checkpoint', type=str, default='./checkpoint/')
     parser.add_argument('--max_sql_len', type=int, default=16)
