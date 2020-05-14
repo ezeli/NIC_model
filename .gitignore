@@ -1,5 +1,6 @@
-*.pth
-*.json
+checkpoint/
+data/
+result/
 .idea/
 
 # Byte-compiled / optimized / DLL files

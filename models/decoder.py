@@ -13,20 +13,17 @@ class Decoder(nn.Module):
     def __init__(self, idx2word, settings):
         super(Decoder, self).__init__()
         self.idx2word = idx2word
-        self.word2idx = {}
-        for i, w in enumerate(idx2word):
-            self.word2idx[w] = i
-        # self.pad_id = self.word2idx['<PAD>']
-        # self.sos_id = self.word2idx['<SOS>']
-        # self.eos_id = self.word2idx['<EOS>']
-        self.pad_id = 0
-        self.sos_id = 0
-        self.eos_id = 0
+        self.pad_id = idx2word.index('<PAD>')
+        self.sos_id = idx2word.index('<SOS>')
+        self.eos_id = idx2word.index('<EOS>')
+        # self.pad_id = 0
+        # self.sos_id = 0
+        # self.eos_id = 0
 
         self.vocab_size = len(idx2word)
         self.word_embed = nn.Sequential(nn.Embedding(self.vocab_size, settings['emb_dim'],
                                                      padding_idx=self.pad_id),
-                                        # nn.ReLU(),
+                                        nn.ReLU(),
                                         nn.Dropout(settings['dropout_p']))
         self.fc_embed = nn.Linear(settings['fc_feat_dim'], settings['emb_dim'])
 
@@ -69,28 +66,29 @@ class Decoder(nn.Module):
         outputs = pack_padded_sequence(outputs, lengths, batch_first=True)[0]
         return outputs
 
-    def forward_rl(self, fc_feats, sample_max=1, max_seq_len=20):
+    def forward_rl(self, fc_feats, sample_max, max_seq_len, decoding_constraint=1):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats).unsqueeze(1)  # bz*1*emb_dim
         _, state = self.rnn(fc_feats)
 
         seq = fc_feats.new_zeros((batch_size, max_seq_len), dtype=torch.long)
         seq_logprobs = fc_feats.new_zeros((batch_size, max_seq_len))
+        seq_masks = fc_feats.new_zeros((batch_size, max_seq_len), dtype=torch.long)
         it = fc_feats.new_zeros(batch_size, dtype=torch.long).fill_(self.sos_id)  # first input <SOS>
-        # unfinished = (it == 0).fill_(1)
+        unfinished = it == self.sos_id
         for t in range(max_seq_len):
             word_embs = self.word_embed(it).unsqueeze(1)  # bs*1*word_emb
             output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
             output = self.rnn_drop(output)
             output = self.classifier(output).squeeze(1)  # bs*vocab_size
-            # output[:, self.pad_id] = float('-inf')  # do not generate <PAD> and <SOS>
-            # output[:, self.sos_id] = float('-inf')
-            # if decoding_constraint and t > 0:  # do not generate last step word
-            #     tmp = output.new_zeros(output.size())
-            #     tmp.scatter_(1, seq[:, t - 1].unsqueeze(1), float('-inf'))
-            #     output = output + tmp
-            # output = output.softmax(dim=-1)
-            # logprobs = output.log()  # bs*vocab_size
+            # TODO
+            output[:, self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
+            output[:, self.sos_id] += float('-inf')
+            if decoding_constraint and t > 0:  # do not generate last step word
+                tmp = output.new_zeros(output.size())
+                tmp.scatter_(1, seq[:, t - 1].unsqueeze(1), float('-inf'))
+                output = output + tmp
+
             logprobs = output.log_softmax(dim=1)
 
             if sample_max:
@@ -103,24 +101,21 @@ class Decoder(nn.Module):
                 it = it.view(-1).long()  # bs
                 sample_logprobs = sample_logprobs.view(-1)  # bs
 
-            if t == 0:
-                unfinished = it != self.eos_id
-            else:
-                unfinished = unfinished * (it != self.eos_id)
+            seq_masks[:, t] = unfinished
             it = it * unfinished.type_as(it)  # bs
             seq[:, t] = it
             seq_logprobs[:, t] = sample_logprobs
-            # unfinished = unfinished * (it != self.eos_id)
-            # quit loop if all sequences have finished
+
+            unfinished = unfinished * (it != self.eos_id)
             if unfinished.sum() == 0:
                 break
 
-        return seq, seq_logprobs
+        return seq, seq_logprobs, seq_masks
 
-    def sample(self, fc_feat, beam_size=3, decoding_constraint=0, max_seq_len=20):
+    def sample(self, fc_feat, max_seq_len=16, beam_size=3, decoding_constraint=1):
         self.eval()
-        fc_feat = fc_feat.unsqueeze(0)  # 1*2048
-        fc_feat = self.fc_embed(fc_feat).unsqueeze(1)  # 1*1*emb_dim
+        fc_feat = fc_feat.view(1, -1)  # 1*2048
+        fc_feat = self.fc_embed(fc_feat).view(1, 1, -1)  # 1*1*emb_dim
         _, state = self.rnn(fc_feat)
 
         # state, log_prob_sum, log_prob_seq, last_word_id, word_id_seq
@@ -135,14 +130,14 @@ class Decoder(nn.Module):
                 else:
                     end_flag = False
                     word_emb = self.word_embed(fc_feat.new_tensor(
-                        [last_word_id], dtype=torch.long)).unsqueeze(0)  # 1*1*emb_dim
+                        [last_word_id], dtype=torch.long)).view(1, 1, -1)  # 1*1*emb_dim
                     output, state = self.rnn(word_emb, state)  # 1*1*hid_dim
                     output = self.rnn_drop(output)
-                    output = self.classifier(output).squeeze(0).squeeze(0)  # vocab_size
-                    # output[self.pad_id] = float('-inf')  # do not generate <PAD> and <SOS>
-                    # output[self.sos_id] = float('-inf')
+                    output = self.classifier(output).view(-1)  # vocab_size
+                    output[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
+                    output[self.sos_id] += float('-inf')
                     if decoding_constraint:  # do not generate last step word
-                        output[last_word_id] = float('-inf')
+                        output[last_word_id] += float('-inf')
 
                     output = torch.log_softmax(output, -1).detach()  # log of probability
                     output_sorted, index_sorted = torch.sort(output, descending=True)
@@ -163,5 +158,6 @@ class Decoder(nn.Module):
         scores = [candidate.log_prob_sum for candidate in candidates]
         return captions, scores
 
-    def get_optimizer(self, lr, weight_decay=0):
-        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
+    def get_optim_and_crit(self, lr, weight_decay=0):
+        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay), \
+               nn.CrossEntropyLoss()

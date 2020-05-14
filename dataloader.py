@@ -6,6 +6,11 @@ import numpy as np
 
 def create_collate_fn(pad_index, max_sql_len):
     def collate_fn(dataset):
+        tmp = []
+        for d in dataset:
+            for cap in d[1]:
+                tmp.append([d[0], cap, d[2]])
+        dataset = tmp
         dataset.sort(key=lambda p: len(p[1]), reverse=True)
         fns, caps, fc_feats = zip(*dataset)
         fc_feats = torch.FloatTensor(np.array(fc_feats))
@@ -22,27 +27,24 @@ def create_collate_fn(pad_index, max_sql_len):
 
 
 class CaptionDataset(data.Dataset):
-    def __init__(self, img_feats, img_captions):
-        self.feats = img_feats
-        self.captions = []
-        for fn, caps in img_captions.items():
-            for cap in caps:
-                self.captions.append((fn, cap))
+    def __init__(self, fc_feats, img_captions):
+        self.fc_feats = fc_feats
+        self.captions = list(img_captions.items())
 
     def __getitem__(self, index):
-        fn, cap = self.captions[index]
-        img = self.feats[fn][:]
-        return fn, cap, np.array(img)
+        fn, caps = self.captions[index]
+        fc_feat = self.fc_feats[fn][:]
+        return fn, caps, np.array(fc_feat)
 
     def __len__(self):
         return len(self.captions)
 
 
-def get_dataloader(img_feats, img_captions, pad_index, max_sql_len, batch_size, num_workers=0, shuffle=True):
-    dataset = CaptionDataset(img_feats, img_captions)
+def get_dataloader(fc_feats, img_captions, pad_index, max_sql_len, batch_size, num_workers=0, shuffle=True):
+    dataset = CaptionDataset(fc_feats, img_captions)
     dataloader = data.DataLoader(dataset,
                                  batch_size=batch_size,
                                  shuffle=shuffle,
                                  num_workers=num_workers,
-                                 collate_fn=create_collate_fn(pad_index, max_sql_len))
+                                 collate_fn=create_collate_fn(pad_index, max_sql_len + 1))
     return dataloader

@@ -6,14 +6,14 @@ def parse_opt():
     parser = argparse.ArgumentParser()
 
     # train settings
-    parser.add_argument('--train_mode', type=str, default='rl', choices=['xe', 'rl'],
+    parser.add_argument('--train_mode', type=str, default='xe', choices=['xe', 'rl'],
                         help='"xe" means Cross Entropy, "rl" means Reinforcement learning')
-    parser.add_argument('--learning_rate', type=float, default=4e-5)
-    parser.add_argument('--resume', type=str, default='./checkpoint/model-xe.pth')
+    parser.add_argument('--learning_rate', type=float, default=4e-4)
+    parser.add_argument('--resume', type=str, default='')
     parser.add_argument('--max_epochs', type=int, default=40)
-    parser.add_argument('--batch_size', type=int, default=80)
+    parser.add_argument('--batch_size', type=int, default=50)
 
-    parser.add_argument('--scheduled_sampling_start', type=int, default=10)
+    parser.add_argument('--scheduled_sampling_start', type=int, default=0)
     parser.add_argument('--scheduled_sampling_increase_every', type=int, default=5)
     parser.add_argument('--scheduled_sampling_increase_prob', type=float, default=0.05)
     parser.add_argument('--scheduled_sampling_max_prob', type=float, default=0.25)
@@ -22,12 +22,12 @@ def parse_opt():
     parser.add_argument('--captions', type=str, default='./data/captions/captions_id.json')
     parser.add_argument('--img_feats', type=str, default='./data/features/coco_fc.h5')
     parser.add_argument('--checkpoint', type=str, default='./checkpoint/')
-    parser.add_argument('--max_sql_len', type=int, default=20)
+    parser.add_argument('--max_sql_len', type=int, default=16)
     parser.add_argument('--grad_clip', type=float, default=0.1)
 
     # eval settings
-    parser.add_argument('--eval_model', type=str, default='./checkpoint/model_23_-0.0325_5.3401_-0.0719_0116-1155.pth')
-    parser.add_argument('--result_file', type=str, default='./result/result_23.json')
+    parser.add_argument('-e', '--eval_model', type=str, default='')
+    parser.add_argument('-r', '--result_file', type=str, default='')
     parser.add_argument('--beam_size', type=int, default=3)
 
     # test setting
@@ -48,5 +48,5 @@ def parse_opt():
 
     args.settings = settings
     args.use_gpu = torch.cuda.is_available()
-    args.device = torch.device('cuda:0') if args.use_gpu else torch.device('cpu')
+    args.device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
     return args

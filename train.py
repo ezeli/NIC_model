@@ -32,32 +32,55 @@ def train():
     idx2word = json.load(open(opt.idx2word, 'r'))
     captions = json.load(open(opt.captions, 'r'))
     f_fc = h5py.File(opt.img_feats, mode='r')
+    if not os.path.exists(opt.checkpoint):
+        os.makedirs(opt.checkpoint)
+
+    print('====> process image captions bengin')
+    word2idx = {}
+    for i, w in enumerate(idx2word):
+        word2idx[w] = i
+    captions_id = {}
+    for split, caps in captions.items():
+        print('convert %s captions to index' % split)
+        captions_id[split] = {}
+        for fn, seqs in tqdm.tqdm(caps.items()):
+            tmp = []
+            for seq in seqs:
+                tmp.append([word2idx['<SOS>']] +
+                           [word2idx.get(w, None) or word2idx['<UNK>'] for w in seq] +
+                           [word2idx['<EOS>']])
+            captions_id[split][fn] = tmp
+    captions = captions_id
+    print('====> process image captions end')
+
+    train_data = get_dataloader(f_fc, captions['train'], word2idx['<PAD>'],
+                                opt.max_sql_len, opt.batch_size)
+    val_data = get_dataloader(f_fc, captions['val'], word2idx['<PAD>'],
+                              opt.max_sql_len, opt.batch_size, shuffle=False)
+    # test_data = get_dataloader(f_fc, captions['test'], word2idx['<PAD>'],
+    #                            opt.max_sql_len, opt.batch_size, shuffle=False)
 
     # 模型
     decoder = Decoder(idx2word, opt.settings)
     decoder.to(opt.device)
     lr = opt.learning_rate
-    optimizer = decoder.get_optimizer(lr)
+    optimizer, xe_criterion = decoder.get_optim_and_crit(lr)
     if opt.resume:
         print("====> loading checkpoint '{}'".format(opt.resume))
         chkpoint = torch.load(opt.resume, map_location=lambda s, l: s)
-        decoder.load_state_dict(chkpoint['model'])
-        if chkpoint['train_mode'] == train_mode:
-            optimizer.load_state_dict(chkpoint['optimizer'])
-            lr = optimizer.param_groups[0]['lr']
         assert opt.settings == chkpoint['settings'], \
             'opt.settings and resume model settings are different'
         assert idx2word == chkpoint['idx2word'], \
             'idx2word and resume model idx2word are different'
+        decoder.load_state_dict(chkpoint['model'])
+        if chkpoint['train_mode'] == train_mode:
+            optimizer.load_state_dict(chkpoint['optimizer'])
+            lr = optimizer.param_groups[0]['lr']
         print("====> loaded checkpoint '{}', epoch: {}, train_mode: {}"
               .format(opt.resume, chkpoint['epoch'], chkpoint['train_mode']))
     elif train_mode == 'rl':
         raise Exception('"rl" mode need resume model')
 
-    train_data = get_dataloader(f_fc, captions['train'], decoder.pad_id, opt.max_sql_len+1, opt.batch_size)
-    val_data = get_dataloader(f_fc, captions['val'], decoder.pad_id, opt.max_sql_len+1, opt.batch_size, shuffle=False)
-
-    xe_criterion = nn.CrossEntropyLoss()
     if train_mode == 'rl':
         rl_criterion = RewardCriterion()
         ciderd_scorer = get_ciderd_scorer(captions, decoder.sos_id, decoder.eos_id)
@@ -65,23 +88,28 @@ def train():
     def forward(data, training=True, ss_prob=0.0):
         decoder.train(training)
         loss_val = 0.0
-        reward_val = 0.0
+        # reward_val = 0.0
         for fns, fc_feats, (caps_tensor, lengths) in tqdm.tqdm(data):
             fc_feats = fc_feats.to(opt.device)
             caps_tensor = caps_tensor.to(opt.device)
 
-            if training and train_mode == 'rl':
-                sample_captions, sample_logprobs = decoder(fc_feats, sample_max=0,
-                                                           max_seq_len=opt.max_sql_len, mode=train_mode)
+            if train_mode == 'rl':
+                sample_captions, sample_logprobs, seq_masks = decoder(
+                    fc_feats, sample_max=0, max_seq_len=opt.max_sql_len, mode=train_mode)
                 decoder.eval()
                 with torch.no_grad():
-                    greedy_captions, _ = decoder(fc_feats, sample_max=1,
-                                                 max_seq_len=opt.max_sql_len, mode=train_mode)
+                    greedy_captions, _, _ = decoder(
+                        fc_feats, sample_max=1, max_seq_len=opt.max_sql_len, mode=train_mode)
                 decoder.train()
-                reward = get_self_critical_reward(sample_captions, greedy_captions, fns, captions['train'],
-                                                  decoder.sos_id, decoder.eos_id, ciderd_scorer)
-                loss = rl_criterion(sample_captions, sample_logprobs, torch.from_numpy(reward).float().to(opt.device))
-                reward_val += np.mean(reward[:, 0]).item()
+                if training:
+                    ground_truth = captions['train']
+                else:
+                    ground_truth = captions['val']
+                reward = get_self_critical_reward(
+                    sample_captions, greedy_captions, fns, ground_truth,
+                    decoder.sos_id, decoder.eos_id, ciderd_scorer)
+                loss = rl_criterion(sample_logprobs, seq_masks, torch.from_numpy(reward).float().to(opt.device))
+                # reward_val += np.mean(reward[:, 0]).item()
             else:
                 pred = decoder(fc_feats, caps_tensor, lengths, ss_prob=ss_prob)
                 real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
@@ -93,7 +121,7 @@ def train():
                 loss.backward()
                 clip_gradient(optimizer, opt.grad_clip)
                 optimizer.step()
-        return loss_val / len(data), reward_val / len(data)
+        return loss_val / len(data)  # , reward_val / len(data)
 
     previous_loss = None
     for epoch in range(opt.max_epochs):
@@ -103,19 +131,18 @@ def train():
         if epoch > opt.scheduled_sampling_start >= 0:
             frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
             ss_prob = min(opt.scheduled_sampling_increase_prob * frac, opt.scheduled_sampling_max_prob)
-        train_loss, avg_reward = forward(train_data, ss_prob=ss_prob)
+        train_loss = forward(train_data, ss_prob=ss_prob)
         with torch.no_grad():
-            val_loss, _ = forward(val_data, training=False)
+            val_loss = forward(val_data, training=False)
 
-        if train_mode != 'rl':
-            if previous_loss is not None and val_loss >= previous_loss:
-                lr = lr * 0.5
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = lr
-            previous_loss = val_loss
+        if previous_loss is not None and val_loss >= previous_loss:
+            lr = lr * 0.5
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+        previous_loss = val_loss
 
-        print('train_loss: %.4f, val_loss: %.4f, avg_reward: %.4f' % (train_loss, val_loss, avg_reward))
-        if epoch in [5, 10, 15, 17, 20, 23, 25, 27, 30, 33, 35, 37, 39]:
+        print('train_loss: %.4f, val_loss: %.4f' % (train_loss, val_loss))
+        if epoch in [5, 15, 18, 20, 23, 25, 27, 30, 33, 36, 39]:
             chkpoint = {
                 'epoch': epoch,
                 'model': decoder.state_dict(),
@@ -124,8 +151,8 @@ def train():
                 'idx2word': idx2word,
                 'train_mode': train_mode,
             }
-            checkpoint_path = os.path.join(opt.checkpoint, 'model_%d_%.4f_%.4f_%.4f_%s.pth' % (
-                epoch, train_loss, val_loss, avg_reward, time.strftime('%m%d-%H%M')))
+            checkpoint_path = os.path.join(opt.checkpoint, 'model_%d_%.4f_%.4f_%s.pth' % (
+                epoch, train_loss, val_loss, time.strftime('%m%d-%H%M')))
             torch.save(chkpoint, checkpoint_path)
 
 

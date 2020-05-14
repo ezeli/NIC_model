@@ -9,24 +9,23 @@ from .bleu.bleu import Bleu
 
 def array_to_str(arr, sos_token, eos_token):
     arr = list(arr)
-    for i in range(len(arr)):
-        arr[i] = int(arr[i])
     if arr[0] == sos_token:
         arr = arr[1:]
-    if arr[-1] != eos_token:
-        arr = arr + [eos_token]
+    # if arr[-1] != eos_token:
+    #     arr = arr + [eos_token]
     out = ''
     for i in range(len(arr)):
-        out += str(arr[i]) + ' '
         if arr[i] == eos_token:
             break
+        out += str(arr[i]) + ' '
     return out.strip()
 
 
 def get_ciderd_scorer(split_captions, sos_token, eos_token):
     print('====> get_ciderd_scorer begin')
-    captions = split_captions['train'].copy()
-    captions.update(split_captions['val'])
+    captions = {}
+    for caps in split_captions.values():
+        captions.update(caps)
 
     refs_idxs = []
     for caps in tqdm.tqdm(captions.values()):
@@ -40,8 +39,11 @@ def get_ciderd_scorer(split_captions, sos_token, eos_token):
     return scorer
 
 
-def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth, sos_token, eos_token, scorer):
+def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth,
+                             sos_token, eos_token, scorer):
     batch_size = len(fns)
+    sample_captions = sample_captions.cpu().numpy()
+    greedy_captions = greedy_captions.cpu().numpy()
     assert sample_captions.size(0) == greedy_captions.size(0) == batch_size
     sample_result = []
     greedy_result = []
@@ -71,13 +73,11 @@ class RewardCriterion(nn.Module):
     def __init__(self):
         super(RewardCriterion, self).__init__()
 
-    def forward(self, seq, seq_logprobs, reward):
+    def forward(self, seq_logprobs, seq_masks, reward):
         seq_logprobs = seq_logprobs.view(-1)
+        seq_masks = seq_masks.view(-1)
         reward = reward.view(-1)
-        # mask = (seq > 0).float().view(-1)
-        mask = (seq > 0).float()
-        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).view(-1)
-        output = - seq_logprobs * reward * mask
-        output = torch.sum(output) / torch.sum(mask)
+        output = - seq_logprobs * seq_masks * reward
+        output = torch.sum(output) / torch.sum(seq_masks)
 
         return output

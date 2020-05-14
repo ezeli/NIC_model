@@ -27,7 +27,9 @@ class Encoder(nn.Module):
         ])
 
     def preprocess(self, image):
-        if len(image.shape) == 2:
+        if len(image.shape) == 3 and image.shape[-1] == 4:  # remove alpha channel
+            image = image[:, :, :3]
+        elif len(image.shape) == 2:
             image = image[:, :, np.newaxis]
             image = np.concatenate((image, image, image), axis=2)
 
