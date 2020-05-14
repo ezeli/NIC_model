@@ -32,8 +32,6 @@ def train():
     idx2word = json.load(open(opt.idx2word, 'r'))
     captions = json.load(open(opt.captions, 'r'))
     f_fc = h5py.File(opt.img_feats, mode='r')
-    if not os.path.exists(opt.checkpoint):
-        os.makedirs(opt.checkpoint)
 
     print('====> process image captions bengin')
     word2idx = {}
@@ -123,6 +121,9 @@ def train():
                 optimizer.step()
         return loss_val / len(data)  # , reward_val / len(data)
 
+    checkpoint_dir = os.path.join(opt.checkpoint, train_mode)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
     previous_loss = None
     for epoch in range(opt.max_epochs):
         print('--------------------epoch: %d' % epoch)
@@ -151,7 +152,7 @@ def train():
                 'idx2word': idx2word,
                 'train_mode': train_mode,
             }
-            checkpoint_path = os.path.join(opt.checkpoint, 'model_%d_%.4f_%.4f_%s.pth' % (
+            checkpoint_path = os.path.join(checkpoint_dir, 'model_%d_%.4f_%.4f_%s.pth' % (
                 epoch, train_loss, val_loss, time.strftime('%m%d-%H%M')))
             torch.save(chkpoint, checkpoint_path)
 
