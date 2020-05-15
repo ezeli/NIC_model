@@ -14,7 +14,7 @@ assert opt.result_file, 'please input result_file'
 
 captions = json.load(open(opt.captions, 'r'))
 f_fc = h5py.File(opt.img_feats, mode='r')
-val_imgs = captions['val'].keys()
+val_imgs = captions['test'].keys()
 
 print("====> loading checkpoint '{}'".format(opt.eval_model))
 chkpoint = torch.load(opt.eval_model, map_location=lambda s, l: s)

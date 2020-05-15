@@ -6,10 +6,10 @@ def parse_opt():
     parser = argparse.ArgumentParser()
 
     # train settings
-    parser.add_argument('--train_mode', type=str, default='xe', choices=['xe', 'rl'],
+    parser.add_argument('--train_mode', type=str, default='rl', choices=['xe', 'rl'],
                         help='"xe" means Cross Entropy, "rl" means Reinforcement learning')
-    parser.add_argument('--learning_rate', type=float, default=4e-4)
-    parser.add_argument('--resume', type=str, default='')
+    parser.add_argument('--learning_rate', type=float, default=4e-5)
+    parser.add_argument('--resume', type=str, default='./checkpoint/xe/model-xe-25.pth')
     parser.add_argument('--max_epochs', type=int, default=40)
     parser.add_argument('--batch_size', type=int, default=50)
 

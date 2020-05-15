@@ -4,13 +4,11 @@ import os
 import h5py
 import time
 import json
-import numpy as np
 import sys
 import pdb
 import traceback
 from bdb import BdbQuit
 import torch
-from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 
 from dataloader import get_dataloader
@@ -55,8 +53,6 @@ def train():
                                 opt.max_sql_len, opt.batch_size)
     val_data = get_dataloader(f_fc, captions['val'], word2idx['<PAD>'],
                               opt.max_sql_len, opt.batch_size, shuffle=False)
-    # test_data = get_dataloader(f_fc, captions['test'], word2idx['<PAD>'],
-    #                            opt.max_sql_len, opt.batch_size, shuffle=False)
 
     # 模型
     decoder = Decoder(idx2word, opt.settings)
@@ -135,6 +131,13 @@ def train():
         train_loss = forward(train_data, ss_prob=ss_prob)
         with torch.no_grad():
             val_loss = forward(val_data, training=False)
+            results = []
+            for fn in tqdm.tqdm(captions['test'].keys()):
+                img_feat = f_fc[fn][:]
+                img_feat = torch.FloatTensor(img_feat).to(opt.device)
+                rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_sql_len)
+                results.append({'image_id': fn, 'caption': rest[0]})
+            json.dump(results, open('./result/result_%s.json' % epoch, 'w'))
 
         if previous_loss is not None and val_loss >= previous_loss:
             lr = lr * 0.5
@@ -143,7 +146,7 @@ def train():
         previous_loss = val_loss
 
         print('train_loss: %.4f, val_loss: %.4f' % (train_loss, val_loss))
-        if epoch in [5, 15, 18, 20, 23, 25, 27, 30, 33, 36, 39]:
+        if epoch > -1:
             chkpoint = {
                 'epoch': epoch,
                 'model': decoder.state_dict(),
