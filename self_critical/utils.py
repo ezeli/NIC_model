@@ -15,9 +15,9 @@ def array_to_str(arr, sos_token, eos_token):
     #     arr = arr + [eos_token]
     out = ''
     for i in range(len(arr)):
+        out += str(arr[i]) + ' '
         if arr[i] == eos_token:
             break
-        out += str(arr[i]) + ' '
     return out.strip()
 
 
@@ -44,7 +44,7 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
     batch_size = len(fns)
     sample_captions = sample_captions.cpu().numpy()
     greedy_captions = greedy_captions.cpu().numpy()
-    assert sample_captions.size(0) == greedy_captions.size(0) == batch_size
+    assert sample_captions.shape[0] == greedy_captions.shape[0] == batch_size
     sample_result = []
     greedy_result = []
     gts = {}
@@ -74,10 +74,11 @@ class RewardCriterion(nn.Module):
         super(RewardCriterion, self).__init__()
 
     def forward(self, seq_logprobs, seq_masks, reward):
-        seq_logprobs = seq_logprobs.view(-1)
-        seq_masks = seq_masks.view(-1)
-        reward = reward.view(-1)
+        # seq_logprobs = seq_logprobs.view(-1)
+        # seq_masks = seq_masks.view(-1)
+        # reward = reward.view(-1)
         output = - seq_logprobs * seq_masks * reward
+        output = output.view(-1)
         output = torch.sum(output) / torch.sum(seq_masks)
 
         return output

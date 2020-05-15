@@ -73,7 +73,7 @@ class Decoder(nn.Module):
 
         seq = fc_feats.new_zeros((batch_size, max_seq_len), dtype=torch.long)
         seq_logprobs = fc_feats.new_zeros((batch_size, max_seq_len))
-        seq_masks = fc_feats.new_zeros((batch_size, max_seq_len), dtype=torch.long)
+        seq_masks = fc_feats.new_zeros((batch_size, max_seq_len))
         it = fc_feats.new_zeros(batch_size, dtype=torch.long).fill_(self.sos_id)  # first input <SOS>
         unfinished = it == self.sos_id
         for t in range(max_seq_len):
@@ -82,12 +82,12 @@ class Decoder(nn.Module):
             output = self.rnn_drop(output)
             output = self.classifier(output).squeeze(1)  # bs*vocab_size
             # TODO
-            output[:, self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
-            output[:, self.sos_id] += float('-inf')
-            if decoding_constraint and t > 0:  # do not generate last step word
-                tmp = output.new_zeros(output.size())
-                tmp.scatter_(1, seq[:, t - 1].unsqueeze(1), float('-inf'))
-                output = output + tmp
+            # output[:, self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
+            # output[:, self.sos_id] += float('-inf')
+            # if decoding_constraint and t > 0:  # do not generate last step word
+            #     tmp = output.new_zeros(output.size())
+            #     tmp.scatter_(1, seq[:, t - 1].unsqueeze(1), float('-inf'))
+            #     output = output + tmp
 
             logprobs = output.log_softmax(dim=1)
 
