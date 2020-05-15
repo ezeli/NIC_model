@@ -8,6 +8,7 @@ import sys
 import pdb
 import traceback
 from bdb import BdbQuit
+import numpy as np
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence
 
@@ -82,7 +83,7 @@ def train():
     def forward(data, training=True, ss_prob=0.0):
         decoder.train(training)
         loss_val = 0.0
-        # reward_val = 0.0
+        reward_val = 0.0
         for fns, fc_feats, (caps_tensor, lengths) in tqdm.tqdm(data):
             fc_feats = fc_feats.to(opt.device)
             caps_tensor = caps_tensor.to(opt.device)
@@ -103,7 +104,7 @@ def train():
                     sample_captions, greedy_captions, fns, ground_truth,
                     decoder.sos_id, decoder.eos_id, ciderd_scorer)
                 loss = rl_criterion(sample_logprobs, seq_masks, torch.from_numpy(reward).float().to(opt.device))
-                # reward_val += np.mean(reward[:, 0]).item()
+                reward_val += np.mean(reward[:, 0]).item()
             else:
                 pred = decoder(fc_feats, caps_tensor, lengths, ss_prob=ss_prob)
                 real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
@@ -115,7 +116,10 @@ def train():
                 loss.backward()
                 clip_gradient(optimizer, opt.grad_clip)
                 optimizer.step()
-        return loss_val / len(data)  # , reward_val / len(data)
+
+        if train_mode == 'rl':
+            return - reward_val / len(data)
+        return loss_val / len(data)
 
     checkpoint_dir = os.path.join(opt.checkpoint, train_mode)
     if not os.path.exists(checkpoint_dir):

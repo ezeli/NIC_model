@@ -11,8 +11,6 @@ def array_to_str(arr, sos_token, eos_token):
     arr = list(arr)
     if arr[0] == sos_token:
         arr = arr[1:]
-    # if arr[-1] != eos_token:
-    #     arr = arr + [eos_token]
     out = ''
     for i in range(len(arr)):
         out += str(arr[i]) + ' '
@@ -74,11 +72,7 @@ class RewardCriterion(nn.Module):
         super(RewardCriterion, self).__init__()
 
     def forward(self, seq_logprobs, seq_masks, reward):
-        # seq_logprobs = seq_logprobs.view(-1)
-        # seq_masks = seq_masks.view(-1)
-        # reward = reward.view(-1)
         output = - seq_logprobs * seq_masks * reward
-        output = output.view(-1)
         output = torch.sum(output) / torch.sum(seq_masks)
 
         return output
