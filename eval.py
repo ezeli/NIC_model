@@ -29,7 +29,7 @@ results = []
 for fn in tqdm.tqdm(val_imgs):
     img_feat = f_fc[fn][:]
     img_feat = torch.FloatTensor(img_feat).to(opt.device)
-    rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_sql_len)
+    rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
     results.append({'image_id': fn, 'caption': rest[0]})
 
 json.dump(results, open(opt.result_file, 'w'))

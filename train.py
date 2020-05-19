@@ -32,7 +32,7 @@ def train():
     captions = json.load(open(opt.captions, 'r'))
     f_fc = h5py.File(opt.img_feats, mode='r')
 
-    print('====> process image captions bengin')
+    print('====> process image captions begin')
     word2idx = {}
     for i, w in enumerate(idx2word):
         word2idx[w] = i
@@ -51,9 +51,9 @@ def train():
     print('====> process image captions end')
 
     train_data = get_dataloader(f_fc, captions['train'], word2idx['<PAD>'],
-                                opt.max_sql_len, opt.batch_size)
+                                opt.max_seq_len, opt.batch_size)
     val_data = get_dataloader(f_fc, captions['val'], word2idx['<PAD>'],
-                              opt.max_sql_len, opt.batch_size, shuffle=False)
+                              opt.max_seq_len, opt.batch_size, shuffle=False)
 
     # 模型
     decoder = Decoder(idx2word, opt.settings)
@@ -90,12 +90,12 @@ def train():
 
             if train_mode == 'rl':
                 sample_captions, sample_logprobs, seq_masks = decoder(
-                    fc_feats, sample_max=0, max_seq_len=opt.max_sql_len, mode=train_mode)
+                    fc_feats, sample_max=0, max_seq_len=opt.max_seq_len, mode=train_mode)
                 decoder.eval()
                 with torch.no_grad():
                     greedy_captions, _, _ = decoder(
-                        fc_feats, sample_max=1, max_seq_len=opt.max_sql_len, mode=train_mode)
-                decoder.train()
+                        fc_feats, sample_max=1, max_seq_len=opt.max_seq_len, mode=train_mode)
+                decoder.train(training)
                 if training:
                     ground_truth = captions['train']
                 else:
@@ -107,8 +107,8 @@ def train():
                 reward_val += np.mean(reward[:, 0]).item()
             else:
                 pred = decoder(fc_feats, caps_tensor, lengths, ss_prob=ss_prob)
-                real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
-                loss = xe_criterion(pred, real)
+                # real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
+                loss = xe_criterion(pred, caps_tensor[:, 1:], lengths)
 
             loss_val += loss.item()
             if training:
@@ -139,7 +139,7 @@ def train():
             for fn in tqdm.tqdm(captions['test'].keys()):
                 img_feat = f_fc[fn][:]
                 img_feat = torch.FloatTensor(img_feat).to(opt.device)
-                rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_sql_len)
+                rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
                 results.append({'image_id': fn, 'caption': rest[0]})
             json.dump(results, open('./result/result_%s.json' % epoch, 'w'))
 

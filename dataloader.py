@@ -4,7 +4,7 @@ from torch.utils import data
 import numpy as np
 
 
-def create_collate_fn(pad_index, max_sql_len):
+def create_collate_fn(pad_index, max_seq_len):
     def collate_fn(dataset):
         tmp = []
         for d in dataset:
@@ -15,7 +15,7 @@ def create_collate_fn(pad_index, max_sql_len):
         fns, caps, fc_feats = zip(*dataset)
         fc_feats = torch.FloatTensor(np.array(fc_feats))
 
-        lengths = [min(len(c), max_sql_len) for c in caps]
+        lengths = [min(len(c), max_seq_len) for c in caps]
         caps_tensor = torch.LongTensor(len(caps), lengths[0]).fill_(pad_index)
         for i, c in enumerate(caps):
             end_cap = lengths[i]
@@ -40,11 +40,11 @@ class CaptionDataset(data.Dataset):
         return len(self.captions)
 
 
-def get_dataloader(fc_feats, img_captions, pad_index, max_sql_len, batch_size, num_workers=0, shuffle=True):
+def get_dataloader(fc_feats, img_captions, pad_index, max_seq_len, batch_size, num_workers=0, shuffle=True):
     dataset = CaptionDataset(fc_feats, img_captions)
     dataloader = data.DataLoader(dataset,
                                  batch_size=batch_size,
                                  shuffle=shuffle,
                                  num_workers=num_workers,
-                                 collate_fn=create_collate_fn(pad_index, max_sql_len + 1))
+                                 collate_fn=create_collate_fn(pad_index, max_seq_len + 1))
     return dataloader

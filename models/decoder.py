@@ -16,9 +16,7 @@ class Decoder(nn.Module):
         self.pad_id = idx2word.index('<PAD>')
         self.sos_id = idx2word.index('<SOS>')
         self.eos_id = idx2word.index('<EOS>')
-        # self.pad_id = 0
-        # self.sos_id = 0
-        # self.eos_id = 0
+        # self.pad_id = self.sos_id = self.eos_id = 0
 
         self.vocab_size = len(idx2word)
         self.word_embed = nn.Sequential(nn.Embedding(self.vocab_size, settings['emb_dim'],
@@ -38,7 +36,7 @@ class Decoder(nn.Module):
             del kwargs['mode']
         return getattr(self, 'forward_' + mode)(*args, **kwargs)
 
-    def forward_xe(self, fc_feats, img_captions, lengths, ss_prob=0.0):
+    def forward_xe(self, fc_feats, captions, lengths, ss_prob=0.0):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats).unsqueeze(1)  # bz*1*emb_dim
         _, state = self.rnn(fc_feats)
@@ -49,24 +47,24 @@ class Decoder(nn.Module):
                 sample_prob = fc_feats.new(batch_size).uniform_(0, 1)
                 sample_mask = sample_prob < ss_prob
                 if sample_mask.sum() == 0:
-                    it = img_captions[:, i].clone()  # bs
+                    it = captions[:, i].clone()  # bs
                 else:
                     sample_ind = sample_mask.nonzero().view(-1)
-                    it = img_captions[:, i].clone()  # bs
+                    it = captions[:, i].clone()  # bs
                     prob_prev = outputs[:, i - 1].detach().softmax(dim=-1)  # bs*vocab_size, fetch prev distribution
                     it.index_copy_(0, sample_ind, torch.multinomial(prob_prev, 1).view(-1).index_select(0, sample_ind))
             else:
-                it = img_captions[:, i].clone()  # bs
+                it = captions[:, i].clone()  # bs
             word_embs = self.word_embed(it).unsqueeze(1)  # bs*1*word_emb
             output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
             output = self.rnn_drop(output)
             output = self.classifier(output).squeeze(1)  # bs*vocab_size
             outputs[:, i] = output
 
-        outputs = pack_padded_sequence(outputs, lengths, batch_first=True)[0]
+        # outputs = pack_padded_sequence(outputs, lengths, batch_first=True)[0]
         return outputs
 
-    def forward_rl(self, fc_feats, sample_max, max_seq_len, decoding_constraint=1):
+    def forward_rl(self, fc_feats, sample_max, max_seq_len):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats).unsqueeze(1)  # bz*1*emb_dim
         _, state = self.rnn(fc_feats)
@@ -81,22 +79,15 @@ class Decoder(nn.Module):
             output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
             output = self.rnn_drop(output)
             output = self.classifier(output).squeeze(1)  # bs*vocab_size
-            # TODO
-            # output[:, self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
-            # output[:, self.sos_id] += float('-inf')
-            # if decoding_constraint and t > 0:  # do not generate last step word
-            #     tmp = output.new_zeros(output.size())
-            #     tmp.scatter_(1, seq[:, t - 1].unsqueeze(1), float('-inf'))
-            #     output = output + tmp
 
-            logprobs = output.log_softmax(dim=1)
+            output = output.softmax(dim=-1)
+            logprobs = output.log()  # bs*vocab_size
 
             if sample_max:
                 sample_logprobs, it = logprobs.max(dim=1)  # bs
                 it = it.long()
             else:
-                prob_prev = torch.exp(logprobs)
-                it = torch.multinomial(prob_prev, 1)  # bs*1
+                it = torch.multinomial(output, 1)  # bs*1
                 sample_logprobs = logprobs.gather(1, it)  # bs*1, gather the logprobs at sampled positions
                 it = it.view(-1).long()  # bs
                 sample_logprobs = sample_logprobs.view(-1)  # bs
@@ -139,12 +130,13 @@ class Decoder(nn.Module):
                     if decoding_constraint:  # do not generate last step word
                         output[last_word_id] += float('-inf')
 
-                    output = torch.log_softmax(output, -1).detach()  # log of probability
-                    output_sorted, index_sorted = torch.sort(output, descending=True)
+                    output = output.softmax(dim=-1)
+                    logprobs = output.log()  # vocab_size
+                    output_sorted, index_sorted = torch.sort(logprobs, descending=True)
                     for k in range(beam_size):
                         log_prob, word_id = output_sorted[k], index_sorted[k]  # tensor, tensor
-                        word_id = int(word_id)
                         log_prob = float(log_prob)
+                        word_id = int(word_id)
                         tmp_candidates.append(BeamCandidate(state, log_prob_sum + log_prob,
                                                             log_prob_seq + [log_prob],
                                                             word_id, word_id_seq + [word_id]))
@@ -160,4 +152,20 @@ class Decoder(nn.Module):
 
     def get_optim_and_crit(self, lr, weight_decay=0):
         return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay), \
-               nn.CrossEntropyLoss()
+               XECriterion()
+
+
+class XECriterion(nn.Module):
+    def __init__(self):
+        super(XECriterion, self).__init__()
+
+    def forward(self, pred, target, lengths):
+        mask = pred.new_zeros(len(lengths), lengths[0])
+        for i, l in enumerate(lengths):
+            mask[i, :l] = 1
+        pred = pred.log_softmax(dim=-1)
+
+        loss = - pred.gather(2, target.unsqueeze(2)).squeeze(2) * mask
+        loss = torch.sum(loss) / torch.sum(mask)
+
+        return loss
