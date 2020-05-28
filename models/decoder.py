@@ -41,7 +41,7 @@ class Decoder(nn.Module):
         fc_feats = self.fc_embed(fc_feats).unsqueeze(1)  # bz*1*emb_dim
         _, state = self.rnn(fc_feats)
 
-        outputs = fc_feats.new_zeros((batch_size, lengths[0], self.vocab_size))
+        outputs = fc_feats.new_zeros((batch_size, max(lengths), self.vocab_size))
         for i in range(lengths[0]):
             if self.training and i >= 1 and ss_prob > 0.0:  # otherwise no need to sample
                 sample_prob = fc_feats.new(batch_size).uniform_(0, 1)
@@ -160,7 +160,7 @@ class XECriterion(nn.Module):
         super(XECriterion, self).__init__()
 
     def forward(self, pred, target, lengths):
-        mask = pred.new_zeros(len(lengths), lengths[0])
+        mask = pred.new_zeros(len(lengths), max(lengths))
         for i, l in enumerate(lengths):
             mask[i, :l] = 1
         pred = pred.log_softmax(dim=-1)

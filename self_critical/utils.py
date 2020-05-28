@@ -43,6 +43,7 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
     sample_captions = sample_captions.cpu().numpy()
     greedy_captions = greedy_captions.cpu().numpy()
     assert sample_captions.shape[0] == greedy_captions.shape[0] == batch_size
+    max_seq_len = sample_captions.shape[1] + 1
     sample_result = []
     greedy_result = []
     gts = {}
@@ -51,7 +52,7 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
         greedy_result.append({'image_id': fn, 'caption': [array_to_str(greedy_captions[i], sos_token, eos_token)]})
         caps = []
         for cap in ground_truth[fn]:
-            caps.append(array_to_str(cap, sos_token, eos_token))
+            caps.append(array_to_str(cap[:max_seq_len], sos_token, eos_token))
         gts[fn] = caps
     all_result = sample_result + greedy_result
     if isinstance(scorer, CiderD):

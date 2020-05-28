@@ -2,6 +2,7 @@
 import torch
 from torch.utils import data
 import numpy as np
+import h5py
 
 
 def create_collate_fn(pad_index, max_seq_len):
@@ -11,12 +12,12 @@ def create_collate_fn(pad_index, max_seq_len):
             for cap in d[1]:
                 tmp.append([d[0], cap, d[2]])
         dataset = tmp
-        dataset.sort(key=lambda p: len(p[1]), reverse=True)
+        # dataset.sort(key=lambda p: len(p[1]), reverse=True)
         fns, caps, fc_feats = zip(*dataset)
         fc_feats = torch.FloatTensor(np.array(fc_feats))
 
         lengths = [min(len(c), max_seq_len) for c in caps]
-        caps_tensor = torch.LongTensor(len(caps), lengths[0]).fill_(pad_index)
+        caps_tensor = torch.LongTensor(len(caps), max(lengths)).fill_(pad_index)
         for i, c in enumerate(caps):
             end_cap = lengths[i]
             caps_tensor[i, :end_cap] = torch.LongTensor(c[:end_cap])
@@ -33,7 +34,8 @@ class CaptionDataset(data.Dataset):
 
     def __getitem__(self, index):
         fn, caps = self.captions[index]
-        fc_feat = self.fc_feats[fn][:]
+        f_fc = h5py.File(self.fc_feats, mode='r')
+        fc_feat = f_fc[fn][:]
         return fn, caps, np.array(fc_feat)
 
     def __len__(self):

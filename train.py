@@ -30,7 +30,6 @@ def train():
 
     idx2word = json.load(open(opt.idx2word, 'r'))
     captions = json.load(open(opt.captions, 'r'))
-    f_fc = h5py.File(opt.img_feats, mode='r')
 
     print('====> process image captions begin')
     word2idx = {}
@@ -50,10 +49,10 @@ def train():
     captions = captions_id
     print('====> process image captions end')
 
-    train_data = get_dataloader(f_fc, captions['train'], word2idx['<PAD>'],
-                                opt.max_seq_len, opt.batch_size)
-    val_data = get_dataloader(f_fc, captions['val'], word2idx['<PAD>'],
-                              opt.max_seq_len, opt.batch_size, shuffle=False)
+    train_data = get_dataloader(opt.img_feats, captions['train'], word2idx['<PAD>'],
+                                opt.max_seq_len, opt.batch_size, opt.num_workers)
+    val_data = get_dataloader(opt.img_feats, captions['val'], word2idx['<PAD>'],
+                              opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
     # 模型
     decoder = Decoder(idx2word, opt.settings)
@@ -137,10 +136,12 @@ def train():
             val_loss = forward(val_data, training=False)
             results = []
             for fn in tqdm.tqdm(captions['test'].keys()):
+                f_fc = h5py.File(opt.img_feats, mode='r')
                 img_feat = f_fc[fn][:]
                 img_feat = torch.FloatTensor(img_feat).to(opt.device)
                 rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
                 results.append({'image_id': fn, 'caption': rest[0]})
+                del f_fc
             json.dump(results, open('./result/result_%s.json' % epoch, 'w'))
 
         if previous_loss is not None and val_loss >= previous_loss:
