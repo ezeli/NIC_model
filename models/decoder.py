@@ -120,6 +120,7 @@ class Decoder(nn.Module):
                     end_flag = False
                     it = fc_feat.new_tensor([last_word_id], dtype=torch.long)  # 1*1*emb_dim
                     logprobs, state = self._forward_step(it, state)
+                    logprobs = logprobs.squeeze(0)
                     if self.pad_id != self.eos_id:
                         logprobs[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
                         logprobs[self.sos_id] += float('-inf')
