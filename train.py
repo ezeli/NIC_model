@@ -110,8 +110,9 @@ def train():
                 reward_val += np.mean(reward[:, 0]).item()
             else:
                 pred = decoder(fc_feats, caps_tensor, ss_prob=ss_prob)
-                # real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
-                loss = xe_criterion(pred, caps_tensor[:, 1:], lengths)
+                pred = pack_padded_sequence(pred, lengths, batch_first=True)[0]
+                real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
+                loss = xe_criterion(pred, real)
 
             loss_val += loss.item()
             if training:

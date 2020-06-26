@@ -148,7 +148,7 @@ class Decoder(nn.Module):
 
     def get_optim_and_crit(self, lr, weight_decay=0):
         return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay), \
-               XECriterion()
+               nn.NLLLoss()
 
 
 class XECriterion(nn.Module):
