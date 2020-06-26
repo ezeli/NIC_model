@@ -41,7 +41,7 @@ class Decoder(nn.Module):
         output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
         output = self.rnn_drop(output)
         output = self.classifier(output).squeeze(1)  # bs*vocab_size
-        logprobs = output.log_softmax(dim=-1)
+        # logprobs = output.log_softmax(dim=-1)
         return logprobs, state
 
     def forward_xe(self, fc_feats, captions, ss_prob=0.0):
@@ -59,7 +59,7 @@ class Decoder(nn.Module):
                 else:
                     sample_ind = sample_mask.nonzero().view(-1)
                     it = captions[:, i].clone()  # bs
-                    prob_prev = outputs[:, i - 1].detach().exp()  # bs*vocab_size, fetch prev distribution
+                    prob_prev = outputs[:, i - 1].detach().softmax(dim=-1)  # bs*vocab_size, fetch prev distribution
                     it.index_copy_(0, sample_ind, torch.multinomial(prob_prev, 1).view(-1).index_select(0, sample_ind))
             else:
                 it = captions[:, i].clone()  # bs
@@ -79,7 +79,8 @@ class Decoder(nn.Module):
         it = fc_feats.new_zeros(batch_size, dtype=torch.long).fill_(self.sos_id)  # first input <SOS>
         unfinished = it == self.sos_id
         for t in range(max_seq_len):
-            logprobs, state = self._forward_step(it, state)
+            output, state = self._forward_step(it, state)
+            logprobs = output.log_softmax(dim=-1)
 
             if sample_max:
                 sample_logprobs, it = torch.max(logprobs, 1)
@@ -119,7 +120,8 @@ class Decoder(nn.Module):
                 else:
                     end_flag = False
                     it = fc_feat.new_tensor([last_word_id], dtype=torch.long)  # 1*1*emb_dim
-                    logprobs, state = self._forward_step(it, state)
+                    output, state = self._forward_step(it, state)
+                    logprobs = output.log_softmax(dim=-1)
                     logprobs = logprobs.squeeze(0)
                     if self.pad_id != self.eos_id:
                         logprobs[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
@@ -148,7 +150,7 @@ class Decoder(nn.Module):
 
     def get_optim_and_crit(self, lr, weight_decay=0):
         return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay), \
-               nn.NLLLoss()
+               nn.CrossEntropyLoss()
 
 
 class XECriterion(nn.Module):
