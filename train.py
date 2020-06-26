@@ -27,32 +27,8 @@ def clip_gradient(optimizer, grad_clip):
 def train():
     opt = parse_opt()
     train_mode = opt.train_mode
-
     idx2word = json.load(open(opt.idx2word, 'r'))
     captions = json.load(open(opt.captions, 'r'))
-
-    print('====> process image captions begin')
-    word2idx = {}
-    for i, w in enumerate(idx2word):
-        word2idx[w] = i
-    captions_id = {}
-    for split, caps in captions.items():
-        print('convert %s captions to index' % split)
-        captions_id[split] = {}
-        for fn, seqs in tqdm.tqdm(caps.items()):
-            tmp = []
-            for seq in seqs:
-                tmp.append([word2idx['<SOS>']] +
-                           [word2idx.get(w, None) or word2idx['<UNK>'] for w in seq] +
-                           [word2idx['<EOS>']])
-            captions_id[split][fn] = tmp
-    captions = captions_id
-    print('====> process image captions end')
-
-    train_data = get_dataloader(opt.img_feats, captions['train'], word2idx['<PAD>'],
-                                opt.max_seq_len, opt.batch_size, opt.num_workers)
-    val_data = get_dataloader(opt.img_feats, captions['val'], word2idx['<PAD>'],
-                              opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
     # 模型
     decoder = Decoder(idx2word, opt.settings)
@@ -74,6 +50,34 @@ def train():
               .format(opt.resume, chkpoint['epoch'], chkpoint['train_mode']))
     elif train_mode == 'rl':
         raise Exception('"rl" mode need resume model')
+
+    print('====> process image captions begin')
+    word2idx = {}
+    for i, w in enumerate(idx2word):
+        word2idx[w] = i
+    captions_id = {}
+    for split, caps in captions.items():
+        print('convert %s captions to index' % split)
+        captions_id[split] = {}
+        for fn, seqs in tqdm.tqdm(caps.items()):
+            tmp = []
+            for seq in seqs:
+                tmp.append([decoder.sos_id] +
+                           [word2idx.get(w, None) or word2idx['<UNK>'] for w in seq] +
+                           [decoder.eos_id])
+            captions_id[split][fn] = tmp
+    captions = captions_id
+    print('====> process image captions end')
+
+    train_data = get_dataloader(opt.img_feats, captions['train'], decoder.pad_id,
+                                opt.max_seq_len, opt.batch_size, opt.num_workers)
+    val_data = get_dataloader(opt.img_feats, captions['val'], decoder.pad_id,
+                              opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
+    test_captions = {}
+    for fn in captions['test']:
+        test_captions[fn] = [[]]
+    test_data = get_dataloader(opt.img_feats, test_captions, decoder.pad_id,
+                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
     if train_mode == 'rl':
         rl_criterion = RewardCriterion()
@@ -123,6 +127,9 @@ def train():
     checkpoint_dir = os.path.join(opt.checkpoint, train_mode)
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
+    result_dir = os.path.join('./result', train_mode)
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
     previous_loss = None
     for epoch in range(opt.max_epochs):
         print('--------------------epoch: %d' % epoch)
@@ -135,16 +142,16 @@ def train():
         with torch.no_grad():
             val_loss = forward(val_data, training=False)
             results = []
-            for fn in tqdm.tqdm(captions['test'].keys()):
-                f_fc = h5py.File(opt.img_feats, mode='r')
-                img_feat = f_fc[fn][:]
-                img_feat = torch.FloatTensor(img_feat).to(opt.device)
-                rest, _ = decoder.sample(img_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
-                results.append({'image_id': fn, 'caption': rest[0]})
-                del f_fc
-            json.dump(results, open('./result/result_%s.json' % epoch, 'w'))
+            for fns, fc_feats, _ in tqdm.tqdm(test_data):
+                fc_feats = fc_feats.to(opt.device)
 
-        if previous_loss is not None and val_loss >= previous_loss:
+                for i, fn in enumerate(fns):
+                    fc_feat = fc_feats[i]
+                    rest, _ = decoder.sample(fc_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
+                    results.append({'image_id': fn, 'caption': rest[0]})
+            json.dump(results, open(os.path.join(result_dir, 'result_%d.json' % epoch), 'w'))
+
+        if train_mode == 'xe' or previous_loss is not None and val_loss >= previous_loss:
             lr = lr * 0.5
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr

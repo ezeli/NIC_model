@@ -14,9 +14,9 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.idx2word = idx2word
         self.pad_id = idx2word.index('<PAD>')
-        self.sos_id = idx2word.index('<SOS>')
-        self.eos_id = idx2word.index('<EOS>')
-        # self.pad_id = self.sos_id = self.eos_id = 0
+        self.unk_id = idx2word.index('<UNK>')
+        self.sos_id = idx2word.index('<SOS>') if '<SOS>' in idx2word else self.pad_id
+        self.eos_id = idx2word.index('<EOS>') if '<EOS>' in idx2word else self.pad_id
 
         self.vocab_size = len(idx2word)
         self.word_embed = nn.Sequential(nn.Embedding(self.vocab_size, settings['emb_dim'],
@@ -36,13 +36,21 @@ class Decoder(nn.Module):
             del kwargs['mode']
         return getattr(self, 'forward_' + mode)(*args, **kwargs)
 
-    def forward_xe(self, fc_feats, captions, lengths, ss_prob=0.0):
+    def _forward_step(self, it, state):
+        word_embs = self.word_embed(it).unsqueeze(1)  # bs*1*word_emb
+        output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
+        output = self.rnn_drop(output)
+        output = self.classifier(output).squeeze(1)  # bs*vocab_size
+        logprobs = output.log_softmax(dim=-1)
+        return logprobs, state
+
+    def forward_xe(self, fc_feats, captions, ss_prob=0.0):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats).unsqueeze(1)  # bz*1*emb_dim
         _, state = self.rnn(fc_feats)
 
-        outputs = fc_feats.new_zeros((batch_size, max(lengths), self.vocab_size))
-        for i in range(lengths[0]):
+        outputs = fc_feats.new_zeros((batch_size, captions.size(1) - 1, self.vocab_size))
+        for i in range(captions.size(1) - 1):
             if self.training and i >= 1 and ss_prob > 0.0:  # otherwise no need to sample
                 sample_prob = fc_feats.new(batch_size).uniform_(0, 1)
                 sample_mask = sample_prob < ss_prob
@@ -51,17 +59,13 @@ class Decoder(nn.Module):
                 else:
                     sample_ind = sample_mask.nonzero().view(-1)
                     it = captions[:, i].clone()  # bs
-                    prob_prev = outputs[:, i - 1].detach().softmax(dim=-1)  # bs*vocab_size, fetch prev distribution
+                    prob_prev = outputs[:, i - 1].detach().exp()  # bs*vocab_size, fetch prev distribution
                     it.index_copy_(0, sample_ind, torch.multinomial(prob_prev, 1).view(-1).index_select(0, sample_ind))
             else:
                 it = captions[:, i].clone()  # bs
-            word_embs = self.word_embed(it).unsqueeze(1)  # bs*1*word_emb
-            output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
-            output = self.rnn_drop(output)
-            output = self.classifier(output).squeeze(1)  # bs*vocab_size
-            outputs[:, i] = output
+            logprobs, state = self._forward_step(it, state)
+            outputs[:, i] = logprobs
 
-        # outputs = pack_padded_sequence(outputs, lengths, batch_first=True)[0]
         return outputs
 
     def forward_rl(self, fc_feats, sample_max, max_seq_len):
@@ -75,22 +79,16 @@ class Decoder(nn.Module):
         it = fc_feats.new_zeros(batch_size, dtype=torch.long).fill_(self.sos_id)  # first input <SOS>
         unfinished = it == self.sos_id
         for t in range(max_seq_len):
-            word_embs = self.word_embed(it).unsqueeze(1)  # bs*1*word_emb
-            output, state = self.rnn(word_embs, state)  # bs*1*rnn_hid
-            output = self.rnn_drop(output)
-            output = self.classifier(output).squeeze(1)  # bs*vocab_size
-
-            output = output.softmax(dim=-1)
-            logprobs = output.log()  # bs*vocab_size
+            logprobs, state = self._forward_step(it, state)
 
             if sample_max:
-                sample_logprobs, it = logprobs.max(dim=1)  # bs
-                it = it.long()
+                sample_logprobs, it = torch.max(logprobs, 1)
             else:
-                it = torch.multinomial(output, 1)  # bs*1
-                sample_logprobs = logprobs.gather(1, it)  # bs*1, gather the logprobs at sampled positions
-                it = it.view(-1).long()  # bs
-                sample_logprobs = sample_logprobs.view(-1)  # bs
+                prob_prev = torch.exp(logprobs)
+                it = torch.multinomial(prob_prev, 1)
+                sample_logprobs = logprobs.gather(1, it)  # gather the logprobs at sampled positions
+            it = it.view(-1).long()
+            sample_logprobs = sample_logprobs.view(-1)
 
             seq_masks[:, t] = unfinished
             it = it * unfinished.type_as(it)  # bs
@@ -120,18 +118,15 @@ class Decoder(nn.Module):
                     tmp_candidates.append(candidate)
                 else:
                     end_flag = False
-                    word_emb = self.word_embed(fc_feat.new_tensor(
-                        [last_word_id], dtype=torch.long)).view(1, 1, -1)  # 1*1*emb_dim
-                    output, state = self.rnn(word_emb, state)  # 1*1*hid_dim
-                    output = self.rnn_drop(output)
-                    output = self.classifier(output).view(-1)  # vocab_size
-                    output[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
-                    output[self.sos_id] += float('-inf')
+                    it = fc_feat.new_tensor([last_word_id], dtype=torch.long)  # 1*1*emb_dim
+                    logprobs, state = self._forward_step(it, state)
+                    if self.pad_id != self.eos_id:
+                        logprobs[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS>
+                        logprobs[self.sos_id] += float('-inf')
+                        logprobs[self.unk_id] += float('-inf')
                     if decoding_constraint:  # do not generate last step word
-                        output[last_word_id] += float('-inf')
+                        logprobs[last_word_id] += float('-inf')
 
-                    output = output.softmax(dim=-1)
-                    logprobs = output.log()  # vocab_size
                     output_sorted, index_sorted = torch.sort(logprobs, descending=True)
                     for k in range(beam_size):
                         log_prob, word_id = output_sorted[k], index_sorted[k]  # tensor, tensor
@@ -163,7 +158,6 @@ class XECriterion(nn.Module):
         mask = pred.new_zeros(len(lengths), max(lengths))
         for i, l in enumerate(lengths):
             mask[i, :l] = 1
-        pred = pred.log_softmax(dim=-1)
 
         loss = - pred.gather(2, target.unsqueeze(2)).squeeze(2) * mask
         loss = torch.sum(loss) / torch.sum(mask)

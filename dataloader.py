@@ -12,7 +12,7 @@ def create_collate_fn(pad_index, max_seq_len):
             for cap in d[1]:
                 tmp.append([d[0], cap, d[2]])
         dataset = tmp
-        # dataset.sort(key=lambda p: len(p[1]), reverse=True)
+        dataset.sort(key=lambda p: len(p[1]), reverse=True)
         fns, caps, fc_feats = zip(*dataset)
         fc_feats = torch.FloatTensor(np.array(fc_feats))
 

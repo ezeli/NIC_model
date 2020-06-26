@@ -6,15 +6,15 @@ def parse_opt():
     parser = argparse.ArgumentParser()
 
     # train settings
-    parser.add_argument('--train_mode', type=str, default='rl', choices=['xe', 'rl'])
-    parser.add_argument('--learning_rate', type=float, default=4e-5)
-    parser.add_argument('--resume', type=str, default='./checkpoint/xe/model-xe-25-new.pth')
-    parser.add_argument('--max_epochs', type=int, default=10)
-    parser.add_argument('--batch_size', type=int, default=80)
+    parser.add_argument('--train_mode', type=str, default='xe', choices=['xe', 'rl'])
+    parser.add_argument('--learning_rate', type=float, default=4e-4)
+    parser.add_argument('--resume', type=str, default='')
+    parser.add_argument('--max_epochs', type=int, default=30)
+    parser.add_argument('--batch_size', type=int, default=20)
     parser.add_argument('--num_workers', type=int, default=2)
 
     parser.add_argument('--scheduled_sampling_start', type=int, default=0)
-    parser.add_argument('--scheduled_sampling_increase_every', type=int, default=5)
+    parser.add_argument('--scheduled_sampling_increase_every', type=int, default=4)
     parser.add_argument('--scheduled_sampling_increase_prob', type=float, default=0.05)
     parser.add_argument('--scheduled_sampling_max_prob', type=float, default=0.25)
 
@@ -31,7 +31,7 @@ def parse_opt():
     parser.add_argument('--beam_size', type=int, default=3)
 
     # test setting
-    parser.add_argument('-m', '--test_model', type=str, default='./checkpoint/model_0_3.2555_2.6799_0.0000_1219-2014.pth')
+    parser.add_argument('-m', '--test_model', type=str, default='')
     parser.add_argument('-i', '--image_file', type=str, default='')
     # encoder settings
     parser.add_argument('--resnet101_file', type=str, default='./data/pre_models/resnet101.pth',
@@ -48,5 +48,5 @@ def parse_opt():
 
     args.settings = settings
     args.use_gpu = torch.cuda.is_available()
-    args.device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+    args.device = torch.device('cuda:1') if args.use_gpu else torch.device('cpu')
     return args
