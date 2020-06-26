@@ -109,7 +109,7 @@ def train():
                 loss = rl_criterion(sample_logprobs, seq_masks, torch.from_numpy(reward).float().to(opt.device))
                 reward_val += np.mean(reward[:, 0]).item()
             else:
-                pred = decoder(fc_feats, caps_tensor, lengths, ss_prob=ss_prob)
+                pred = decoder(fc_feats, caps_tensor, ss_prob=ss_prob)
                 # real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
                 loss = xe_criterion(pred, caps_tensor[:, 1:], lengths)
 
@@ -158,7 +158,7 @@ def train():
         previous_loss = val_loss
 
         print('train_loss: %.4f, val_loss: %.4f' % (train_loss, val_loss))
-        if epoch > -1:
+        if epoch in [0, 5, 10, 15, 20, 25, 29]:
             chkpoint = {
                 'epoch': epoch,
                 'model': decoder.state_dict(),
