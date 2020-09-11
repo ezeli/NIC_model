@@ -82,5 +82,5 @@ if __name__ == '__main__':
 
     opt = parser.parse_args()
 
-    # extract_imgs_feat()
+    extract_imgs_feat()
     process_coco_captions()

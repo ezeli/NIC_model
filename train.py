@@ -9,7 +9,6 @@ import traceback
 from bdb import BdbQuit
 import numpy as np
 import torch
-from torch.nn.utils.rnn import pack_padded_sequence
 
 from dataloader import get_dataloader
 from models.decoder import Decoder
@@ -119,7 +118,7 @@ def train():
     checkpoint_dir = os.path.join(opt.checkpoint, train_mode)
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
-    result_dir = os.path.join('./result', train_mode)
+    result_dir = os.path.join(opt.result, train_mode)
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
     previous_loss = None
@@ -133,14 +132,6 @@ def train():
         train_loss, train_reward = forward(train_data, ss_prob=ss_prob)
         with torch.no_grad():
             val_loss, _ = forward(val_data, training=False)
-            results = []
-            for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
-                fc_feats = fc_feats.to(opt.device)
-                for i, fn in enumerate(fns):
-                    fc_feat = fc_feats[i]
-                    rest, _ = decoder.sample(fc_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
-                    results.append({'image_id': fn, 'caption': rest[0]})
-            json.dump(results, open(os.path.join(result_dir, 'result_%d.json' % epoch), 'w'))
 
         if train_mode == 'xe' and previous_loss is not None and val_loss >= previous_loss:
             lr = lr * 0.5
@@ -150,6 +141,17 @@ def train():
 
         print('train_loss: %.4f, train_reward: %.4f, val_loss: %.4f' % (train_loss, train_reward, val_loss))
         if epoch in [0, 5, 10, 15, 20, 25, 29]:
+            # test
+            results = []
+            for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
+                fc_feats = fc_feats.to(opt.device)
+                for i, fn in enumerate(fns):
+                    fc_feat = fc_feats[i]
+                    with torch.no_grad():
+                        rest, _ = decoder.sample(fc_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
+                    results.append({'image_id': fn, 'caption': rest[0]})
+            json.dump(results, open(os.path.join(result_dir, 'result_%d.json' % epoch), 'w'))
+
             chkpoint = {
                 'epoch': epoch,
                 'model': decoder.state_dict(),

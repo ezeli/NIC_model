@@ -1,6 +1,5 @@
 # coding:utf8
 import torch
-import h5py
 import json
 import tqdm
 
@@ -29,9 +28,8 @@ test_data = get_dataloader(opt.img_feats, test_captions, decoder.pad_id,
                            opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
 results = []
-for fns, fc_feats, _ in tqdm.tqdm(test_data):
+for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
     fc_feats = fc_feats.to(opt.device)
-
     for i, fn in enumerate(fns):
         fc_feat = fc_feats[i]
         with torch.no_grad():
