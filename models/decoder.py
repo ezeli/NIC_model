@@ -40,15 +40,15 @@ class Decoder(nn.Module):
 
     def _forward_step(self, it, state):
         word_embs = self.word_embed(it)  # bs*word_emb
-        output, state = self.rnn(word_embs, state)  # bs*rnn_hid
-        output = self.rnn_drop(output)
+        state = self.rnn(word_embs, state)  # bs*rnn_hid
+        output = self.rnn_drop(state[0])
         logprobs = F.log_softmax(self.classifier(output), dim=1)  # bs*vocab
         return logprobs, state
 
     def forward_xe(self, fc_feats, captions, ss_prob=0.0):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats)  # bz*emb_dim
-        _, state = self.rnn(fc_feats)
+        state = self.rnn(fc_feats)
 
         outputs = []
         for i in range(captions.size(1) - 1):
@@ -73,7 +73,7 @@ class Decoder(nn.Module):
     def forward_rl(self, fc_feats, sample_max, max_seq_len):
         batch_size = fc_feats.size(0)
         fc_feats = self.fc_embed(fc_feats)  # bz*emb_dim
-        _, state = self.rnn(fc_feats)
+        state = self.rnn(fc_feats)
 
         seq = fc_feats.new_zeros((batch_size, max_seq_len), dtype=torch.long)
         seq_logprobs = fc_feats.new_zeros((batch_size, max_seq_len))
@@ -107,7 +107,7 @@ class Decoder(nn.Module):
         self.eval()
         fc_feat = fc_feat.view(1, -1)  # 1*2048
         fc_feat = self.fc_embed(fc_feat)  # 1*emb_dim
-        _, state = self.rnn(fc_feat)
+        state = self.rnn(fc_feat)
 
         # state, log_prob_sum, log_prob_seq, last_word_id, word_id_seq
         candidates = [BeamCandidate(state, 0., [], self.sos_id, [])]
