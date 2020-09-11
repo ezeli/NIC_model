@@ -1,7 +1,6 @@
 # coding:utf8
 import tqdm
 import os
-import h5py
 import time
 import json
 import sys
@@ -70,7 +69,7 @@ def train():
     print('====> process image captions end')
 
     train_data = get_dataloader(opt.img_feats, captions['train'], decoder.pad_id,
-                                opt.max_seq_len, opt.batch_size, opt.num_workers)
+                                opt.max_seq_len, opt.batch_size, opt.num_workers, mode=train_mode)
     val_data = get_dataloader(opt.img_feats, captions['val'], decoder.pad_id,
                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
     test_captions = {}
@@ -87,11 +86,11 @@ def train():
         decoder.train(training)
         loss_val = 0.0
         reward_val = 0.0
-        for fns, fc_feats, (caps_tensor, lengths) in tqdm.tqdm(data):
+        for fns, fc_feats, (caps_tensor, lengths), ground_truth in tqdm.tqdm(data):
             fc_feats = fc_feats.to(opt.device)
             caps_tensor = caps_tensor.to(opt.device)
 
-            if train_mode == 'rl':
+            if training and train_mode == 'rl':
                 sample_captions, sample_logprobs, seq_masks = decoder(
                     fc_feats, sample_max=0, max_seq_len=opt.max_seq_len, mode=train_mode)
                 decoder.eval()
@@ -99,31 +98,25 @@ def train():
                     greedy_captions, _, _ = decoder(
                         fc_feats, sample_max=1, max_seq_len=opt.max_seq_len, mode=train_mode)
                 decoder.train(training)
-                if training:
-                    ground_truth = captions['train']
-                else:
-                    ground_truth = captions['val']
                 reward = get_self_critical_reward(
                     sample_captions, greedy_captions, fns, ground_truth,
                     decoder.sos_id, decoder.eos_id, ciderd_scorer)
                 loss = rl_criterion(sample_logprobs, seq_masks, torch.from_numpy(reward).float().to(opt.device))
-                reward_val += np.mean(reward[:, 0]).item()
+                reward_val += float(np.mean(reward[:, 0]))
             else:
                 pred = decoder(fc_feats, caps_tensor, ss_prob=ss_prob)
                 pred = pack_padded_sequence(pred, lengths, batch_first=True)[0]
                 real = pack_padded_sequence(caps_tensor[:, 1:], lengths, batch_first=True)[0]
                 loss = xe_criterion(pred, real)
 
-            loss_val += loss.item()
+            loss_val += float(loss)
             if training:
                 optimizer.zero_grad()
                 loss.backward()
                 clip_gradient(optimizer, opt.grad_clip)
                 optimizer.step()
 
-        if train_mode == 'rl':
-            return - reward_val / len(data)
-        return loss_val / len(data)
+        return loss_val / len(data), reward_val / len(data)
 
     checkpoint_dir = os.path.join(opt.checkpoint, train_mode)
     if not os.path.exists(checkpoint_dir):
@@ -139,26 +132,25 @@ def train():
         if epoch > opt.scheduled_sampling_start >= 0:
             frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
             ss_prob = min(opt.scheduled_sampling_increase_prob * frac, opt.scheduled_sampling_max_prob)
-        train_loss = forward(train_data, ss_prob=ss_prob)
+        train_loss, train_reward = forward(train_data, ss_prob=ss_prob)
         with torch.no_grad():
-            val_loss = forward(val_data, training=False)
+            val_loss, _ = forward(val_data, training=False)
             results = []
-            for fns, fc_feats, _ in tqdm.tqdm(test_data):
+            for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
                 fc_feats = fc_feats.to(opt.device)
-
                 for i, fn in enumerate(fns):
                     fc_feat = fc_feats[i]
                     rest, _ = decoder.sample(fc_feat, beam_size=opt.beam_size, max_seq_len=opt.max_seq_len)
                     results.append({'image_id': fn, 'caption': rest[0]})
             json.dump(results, open(os.path.join(result_dir, 'result_%d.json' % epoch), 'w'))
 
-        if train_mode == 'xe' or previous_loss is not None and val_loss >= previous_loss:
+        if train_mode == 'xe' and previous_loss is not None and val_loss >= previous_loss:
             lr = lr * 0.5
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
         previous_loss = val_loss
 
-        print('train_loss: %.4f, val_loss: %.4f' % (train_loss, val_loss))
+        print('train_loss: %.4f, train_reward: %.4f, val_loss: %.4f' % (train_loss, train_reward, val_loss))
         if epoch in [0, 5, 10, 15, 20, 25, 29]:
             chkpoint = {
                 'epoch': epoch,
@@ -168,8 +160,8 @@ def train():
                 'idx2word': idx2word,
                 'train_mode': train_mode,
             }
-            checkpoint_path = os.path.join(checkpoint_dir, 'model_%d_%.4f_%.4f_%s.pth' % (
-                epoch, train_loss, val_loss, time.strftime('%m%d-%H%M')))
+            checkpoint_path = os.path.join(checkpoint_dir, 'model_%d_%.4f_%s.pth' % (
+                epoch, val_loss, time.strftime('%m%d-%H%M')))
             torch.save(chkpoint, checkpoint_path)
 
 

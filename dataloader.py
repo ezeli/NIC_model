@@ -3,14 +3,19 @@ import torch
 from torch.utils import data
 import numpy as np
 import h5py
+import random
 
 
-def create_collate_fn(pad_index, max_seq_len):
+def create_collate_fn(pad_index, max_seq_len, mode):
     def collate_fn(dataset):
+        ground_truth = {}
         tmp = []
-        for d in dataset:
-            for cap in d[1]:
-                tmp.append([d[0], cap, d[2]])
+        for fn, caps, fc_feat in dataset:
+            ground_truth[fn] = [c[:max_seq_len] for c in caps]
+            if mode == 'rl':
+                caps = random.sample(caps, 1)
+            for cap in caps:
+                tmp.append([fn, cap, fc_feat])
         dataset = tmp
         dataset.sort(key=lambda p: len(p[1]), reverse=True)
         fns, caps, fc_feats = zip(*dataset)
@@ -22,7 +27,7 @@ def create_collate_fn(pad_index, max_seq_len):
             end_cap = lengths[i]
             caps_tensor[i, :end_cap] = torch.LongTensor(c[:end_cap])
         lengths = [l-1 for l in lengths]
-        return fns, fc_feats, (caps_tensor, lengths)
+        return fns, fc_feats, (caps_tensor, lengths), ground_truth
 
     return collate_fn
 
@@ -42,11 +47,11 @@ class CaptionDataset(data.Dataset):
         return len(self.captions)
 
 
-def get_dataloader(fc_feats, img_captions, pad_index, max_seq_len, batch_size, num_workers=0, shuffle=True):
+def get_dataloader(fc_feats, img_captions, pad_index, max_seq_len, batch_size, num_workers=0, shuffle=True, mode='xe'):
     dataset = CaptionDataset(fc_feats, img_captions)
     dataloader = data.DataLoader(dataset,
                                  batch_size=batch_size,
                                  shuffle=shuffle,
                                  num_workers=num_workers,
-                                 collate_fn=create_collate_fn(pad_index, max_seq_len + 1))
+                                 collate_fn=create_collate_fn(pad_index, max_seq_len + 1, mode))
     return dataloader

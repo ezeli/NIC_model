@@ -2,20 +2,22 @@ import numpy as np
 import torch
 import torch.nn as nn
 import tqdm
+from collections import defaultdict
 
 from .cider.pyciderevalcap.ciderD.ciderD import CiderD
 from .bleu.bleu import Bleu
 
 
-def array_to_str(arr, sos_token, eos_token):
+def _array_to_str(arr, sos_token, eos_token):
     arr = list(arr)
     if arr[0] == sos_token:
         arr = arr[1:]
     out = ''
     for i in range(len(arr)):
-        out += str(arr[i]) + ' '
         if arr[i] == eos_token:
             break
+        out += str(arr[i]) + ' '
+    out += str(eos_token)
     return out.strip()
 
 
@@ -29,7 +31,7 @@ def get_ciderd_scorer(split_captions, sos_token, eos_token):
     for caps in tqdm.tqdm(captions.values()):
         ref_idxs = []
         for cap in caps:
-            ref_idxs.append(array_to_str(cap, sos_token, eos_token))
+            ref_idxs.append(_array_to_str(cap, sos_token, eos_token))
         refs_idxs.append(ref_idxs)
 
     scorer = CiderD(refs=refs_idxs)
@@ -48,11 +50,11 @@ def get_self_critical_reward(sample_captions, greedy_captions, fns, ground_truth
     greedy_result = []
     gts = {}
     for i, fn in enumerate(fns):
-        sample_result.append({'image_id': fn, 'caption': [array_to_str(sample_captions[i], sos_token, eos_token)]})
-        greedy_result.append({'image_id': fn, 'caption': [array_to_str(greedy_captions[i], sos_token, eos_token)]})
+        sample_result.append({'image_id': fn, 'caption': [_array_to_str(sample_captions[i], sos_token, eos_token)]})
+        greedy_result.append({'image_id': fn, 'caption': [_array_to_str(greedy_captions[i], sos_token, eos_token)]})
         caps = []
         for cap in ground_truth[fn]:
-            caps.append(array_to_str(cap[:max_seq_len], sos_token, eos_token))
+            caps.append(_array_to_str(cap[:max_seq_len], sos_token, eos_token))
         gts[fn] = caps
     all_result = sample_result + greedy_result
     if isinstance(scorer, CiderD):

@@ -14,7 +14,7 @@ def parse_opt():
     parser.add_argument('--num_workers', type=int, default=2)
 
     parser.add_argument('--scheduled_sampling_start', type=int, default=0)
-    parser.add_argument('--scheduled_sampling_increase_every', type=int, default=4)
+    parser.add_argument('--scheduled_sampling_increase_every', type=int, default=5)
     parser.add_argument('--scheduled_sampling_increase_prob', type=float, default=0.05)
     parser.add_argument('--scheduled_sampling_max_prob', type=float, default=0.25)
 
@@ -48,5 +48,5 @@ def parse_opt():
 
     args.settings = settings
     args.use_gpu = torch.cuda.is_available()
-    args.device = torch.device('cuda:1') if args.use_gpu else torch.device('cpu')
+    args.device = torch.device('cuda:0') if args.use_gpu else torch.device('cpu')
     return args
