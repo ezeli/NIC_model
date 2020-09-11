@@ -42,7 +42,8 @@ class Decoder(nn.Module):
         word_embs = self.word_embed(it)  # bs*word_emb
         state = self.rnn(word_embs, state)  # bs*rnn_hid
         output = self.rnn_drop(state[0])
-        logprobs = F.log_softmax(self.classifier(output), dim=1)  # bs*vocab
+        output = self.classifier(output)  # bs*vocab
+        logprobs = F.log_softmax(output, dim=1)  # bs*vocab
         return logprobs, state
 
     def forward_xe(self, fc_feats, captions, ss_prob=0.0):
@@ -124,7 +125,7 @@ class Decoder(nn.Module):
                     logprobs, state = self._forward_step(it, state)  # [1, vocab_size]
                     logprobs = logprobs.squeeze(0)
                     if self.pad_id != self.eos_id:
-                        logprobs[self.pad_id] += float('-inf')  # do not generate <PAD> and <SOS> and <UNK>
+                        logprobs[self.pad_id] += float('-inf')  # do not generate <PAD>, <SOS> and <UNK>
                         logprobs[self.sos_id] += float('-inf')
                         logprobs[self.unk_id] += float('-inf')
                     if decoding_constraint:  # do not generate last step word
