@@ -68,14 +68,11 @@ def train():
     print('====> process image captions end')
 
     train_data = get_dataloader(opt.img_feats, captions['train'], decoder.pad_id,
-                                opt.max_seq_len, opt.batch_size, opt.num_workers, mode=train_mode)
+                                opt.max_seq_len, opt.batch_size, opt.num_workers)  # , mode=train_mode)
     val_data = get_dataloader(opt.img_feats, captions['val'], decoder.pad_id,
                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
-    test_captions = {}
-    for fn in captions['test']:
-        test_captions[fn] = [[]]
-    test_data = get_dataloader(opt.img_feats, test_captions, decoder.pad_id,
-                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
+    test_data = get_dataloader(opt.img_feats, captions['test'], decoder.pad_id,
+                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False, mode='rl')
 
     if train_mode == 'rl':
         rl_criterion = RewardCriterion()
