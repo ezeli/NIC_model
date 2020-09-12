@@ -3,17 +3,14 @@ import torch
 from torch.utils import data
 import numpy as np
 import h5py
-import random
 
 
-def create_collate_fn(pad_index, max_seq_len, mode):
+def create_collate_fn(pad_index, max_seq_len):
     def collate_fn(dataset):
         ground_truth = {}
         tmp = []
         for fn, caps, fc_feat in dataset:
             ground_truth[fn] = [c[:max_seq_len] for c in caps]
-            if mode == 'rl':
-                caps = random.sample(caps, 1)
             for cap in caps:
                 tmp.append([fn, cap, fc_feat])
         dataset = tmp
@@ -47,11 +44,11 @@ class CaptionDataset(data.Dataset):
         return len(self.captions)
 
 
-def get_dataloader(fc_feats, img_captions, pad_index, max_seq_len, batch_size, num_workers=0, shuffle=True, mode='xe'):
+def get_dataloader(fc_feats, img_captions, pad_index, max_seq_len, batch_size, num_workers=0, shuffle=True):
     dataset = CaptionDataset(fc_feats, img_captions)
     dataloader = data.DataLoader(dataset,
                                  batch_size=batch_size,
                                  shuffle=shuffle,
                                  num_workers=num_workers,
-                                 collate_fn=create_collate_fn(pad_index, max_seq_len + 1, mode))
+                                 collate_fn=create_collate_fn(pad_index, max_seq_len + 1))
     return dataloader

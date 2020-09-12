@@ -28,7 +28,7 @@ test_data = get_dataloader(opt.img_feats, test_captions, decoder.pad_id,
                            opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
 results = []
-for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
+for fns, fc_feats, _, _ in tqdm.tqdm(test_data, ncols=100):
     fc_feats = fc_feats.to(opt.device)
     for i, fn in enumerate(fns):
         fc_feat = fc_feats[i]

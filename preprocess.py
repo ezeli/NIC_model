@@ -23,7 +23,7 @@ def extract_imgs_feat():
     with h5py.File(os.path.join(opt.out_feats_dir, '%s_fc.h5' % opt.dataset_name)) as file_fc, \
             h5py.File(os.path.join(opt.out_feats_dir, '%s_att.h5' % opt.dataset_name)) as file_att:
         try:
-            for img_nm in tqdm.tqdm(imgs):
+            for img_nm in tqdm.tqdm(imgs, ncols=100):
                 img = skimage.io.imread(os.path.join(opt.imgs_dir, img_nm))
                 with torch.no_grad():
                     img = encoder.preprocess(img)
@@ -43,7 +43,7 @@ def process_coco_captions():
     captions = {'train': {}, 'val': {}, 'test': {}}
     annotation = {}
     idx2word = Counter()
-    for img in tqdm.tqdm(images):
+    for img in tqdm.tqdm(images, ncols=100):
         split = 'train'
         if img['split'] == 'val':
             split = 'val'

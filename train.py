@@ -57,7 +57,7 @@ def train():
     for split, caps in captions.items():
         print('convert %s captions to index' % split)
         captions_id[split] = {}
-        for fn, seqs in tqdm.tqdm(caps.items()):
+        for fn, seqs in tqdm.tqdm(caps.items(), ncols=100):
             tmp = []
             for seq in seqs:
                 tmp.append([decoder.sos_id] +
@@ -68,11 +68,14 @@ def train():
     print('====> process image captions end')
 
     train_data = get_dataloader(opt.img_feats, captions['train'], decoder.pad_id,
-                                opt.max_seq_len, opt.batch_size, opt.num_workers)  # , mode=train_mode)
+                                opt.max_seq_len, opt.batch_size, opt.num_workers)
     val_data = get_dataloader(opt.img_feats, captions['val'], decoder.pad_id,
                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
-    test_data = get_dataloader(opt.img_feats, captions['test'], decoder.pad_id,
-                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False, mode='rl')
+    test_captions = {}
+    for fn in captions['test']:
+        test_captions[fn] = [[]]
+    test_data = get_dataloader(opt.img_feats, test_captions, decoder.pad_id,
+                               opt.max_seq_len, opt.batch_size, opt.num_workers, shuffle=False)
 
     if train_mode == 'rl':
         rl_criterion = RewardCriterion()
@@ -82,7 +85,7 @@ def train():
         decoder.train(training)
         loss_val = 0.0
         reward_val = 0.0
-        for fns, fc_feats, (caps_tensor, lengths), ground_truth in tqdm.tqdm(data):
+        for fns, fc_feats, (caps_tensor, lengths), ground_truth in tqdm.tqdm(data, ncols=100):
             fc_feats = fc_feats.to(opt.device)
             caps_tensor = caps_tensor.to(opt.device)
 
@@ -121,7 +124,6 @@ def train():
     previous_loss = None
     for epoch in range(opt.max_epochs):
         print('--------------------epoch: %d' % epoch)
-        # torch.cuda.empty_cache()
         ss_prob = 0.0
         if epoch > opt.scheduled_sampling_start >= 0:
             frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
@@ -136,11 +138,10 @@ def train():
                 param_group['lr'] = lr
         previous_loss = val_loss
 
-        print('train_loss: %.4f, train_reward: %.4f, val_loss: %.4f' % (train_loss, train_reward, val_loss))
-        if epoch in [0, 5, 10, 15, 20, 25, 29]:
+        if epoch in [0, 5, 10, 15, 20, 25, 29, 30, 35, 39, 40, 45, 49]:
             # test
             results = []
-            for fns, fc_feats, _, _ in tqdm.tqdm(test_data):
+            for fns, fc_feats, _, _ in tqdm.tqdm(test_data, ncols=100):
                 fc_feats = fc_feats.to(opt.device)
                 for i, fn in enumerate(fns):
                     fc_feat = fc_feats[i]
@@ -160,6 +161,8 @@ def train():
             checkpoint_path = os.path.join(checkpoint_dir, 'model_%d_%.4f_%s.pth' % (
                 epoch, val_loss, time.strftime('%m%d-%H%M')))
             torch.save(chkpoint, checkpoint_path)
+
+        print('train_loss: %.4f, train_reward: %.4f, val_loss: %.4f' % (train_loss, train_reward, val_loss))
 
 
 if __name__ == '__main__':

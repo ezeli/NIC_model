@@ -8,10 +8,10 @@ def parse_opt():
     # train settings
     parser.add_argument('--train_mode', type=str, default='xe', choices=['xe', 'rl'])
     parser.add_argument('--learning_rate', type=float, default=4e-4)  # 4e-4 for xe, 4e-5 for rl
-    parser.add_argument('--resume', type=str, default='')
-    parser.add_argument('--max_epochs', type=int, default=30)
+    parser.add_argument('--resume', type=str, default='')  # required for rl
+    parser.add_argument('--max_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--num_workers', type=int, default=2)
+    parser.add_argument('--num_workers', type=int, default=0)
 
     parser.add_argument('--scheduled_sampling_start', type=int, default=0)
     parser.add_argument('--scheduled_sampling_increase_every', type=int, default=5)
